@@ -35,9 +35,7 @@ const char compile_date[] = __DATE__ " " __TIME__;
 #define MQTT_HEARTBEAT_SUB "heartbeat/#"
 #define MQTT_HEARTBEAT_TOPIC "heartbeat"
 
-volatile int watchDogCount = 0;
-
-Ticker ticker_fw, ticker_watchdog, ticker_status;
+Ticker ticker_fw, ticker_status;
 
 bool readyForFwUpdate = false;
 
@@ -54,7 +52,8 @@ PubSubClient client(espClient);
 #define LIGHT_ON "ON"
 #define LIGHT_OFF "OFF"
 
-#define Relay_1    5 //  D1  
+#define RELAY_1    5 //  D1  
+#define WATCHDOG   14 //  D5   
 
 void setup() {
   Serial.begin(115200);
@@ -62,10 +61,9 @@ void setup() {
   client.setServer(MQTT_SERVER, MQTT_PORT); //CHANGE PORT HERE IF NEEDED
   client.setCallback(callback);
   
-  digitalWrite(Relay_1, RELAY_OFF);
-  pinMode(Relay_1, OUTPUT);   
+  digitalWrite(RELAY_1, RELAY_OFF);
+  pinMode(RELAY_1, OUTPUT);   
 
-  ticker_watchdog.attach_ms(WATCHDOG_UPDATE_INTERVAL_SEC * 1000, watchdogTicker);
   ticker_status.attach_ms(STATUS_UPDATE_INTERVAL_SEC * 1000, statusTicker);
 
   checkForUpdates();
@@ -141,17 +139,17 @@ void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
     payload.concat((char)p_payload[i]);
   }   
   if (String(MQTT_HEARTBEAT_TOPIC).equals(p_topic)) {
-    watchDogCount = 0;  
+    resetWatchdog();  
     return;
   }      
   if (payload.equals(String(LIGHT_ON))) {
-    digitalWrite(Relay_1, RELAY_ON);
+    digitalWrite(RELAY_1, RELAY_ON);
     client.publish(MQTT_SWITCH_REPLY_TOPIC_1, LIGHT_ON);
     Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_1) + LIGHT_ON);
     relayStatus = 1;
   }
   else if (payload.equals(String(LIGHT_OFF))) {
-    digitalWrite(Relay_1, RELAY_OFF);
+    digitalWrite(RELAY_1, RELAY_OFF);
     client.publish(MQTT_SWITCH_REPLY_TOPIC_1, LIGHT_OFF);
     Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_1) + LIGHT_OFF);
     relayStatus = 0;
@@ -173,15 +171,6 @@ void statusTicker() {
       status = "OFF";
     }
     client.publish(MQTT_SWITCH_REPLY_TOPIC_1, status.c_str());
-  }
-}
-
-// Watchdog update ticker
-void watchdogTicker() {
-  watchDogCount++;
-  if(watchDogCount >= WATCHDOG_RESET_INTERVAL_SEC) {
-    Serial.println("Reset system");
-    ESP.restart();  
   }
 }
 
@@ -257,4 +246,10 @@ void my_delay(unsigned long ms) {
       start += 1000;
     }
   }
+}
+
+void resetWatchdog() {
+  digitalWrite(WATCHDOG, HIGH);
+  my_delay(20);
+  digitalWrite(WATCHDOG, LOW);
 }
