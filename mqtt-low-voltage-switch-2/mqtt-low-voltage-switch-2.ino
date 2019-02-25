@@ -25,7 +25,7 @@ const char compile_date[] = __DATE__ " " __TIME__;
 #define WATCHDOG_RESET_INTERVAL_SEC 120
 #define FLASH_INTERVAL_MS 1500
 #define UPDATE_SERVER "http://192.168.100.15/firmware/"
-#define FIRMWARE_VERSION "-1.07"
+#define FIRMWARE_VERSION "-1.08"
 
 /****************************** MQTT TOPICS (change these topics as you wish)  ***************************************/
 
@@ -55,8 +55,8 @@ PubSubClient client(espClient);
 #define LIGHT_OFF "OFF"
 #define LIGHT_FLASH "FLASH"
 
-#define RELAY_1    5  //  D5
-#define WATCHDOG   14 //  D1   
+#define RELAY_1    14 //  D1
+#define WATCHDOG   5  //  D5   
 
 void setup() {
   Serial.begin(115200);
