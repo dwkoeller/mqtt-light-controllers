@@ -1,12 +1,3 @@
-#include <PubSubClient.h>
-#include <DHT.h>
-#include <ESP8266WiFi.h>
-#include <WiFiManager.h>
-#include <Ticker.h>
-#include <ESP8266HTTPClient.h>
-#include <ESP8266httpUpdate.h>
-#include "credentials.h" // Place credentials for wifi and mqtt in this file
-
 //This can be used to output the date the code was compiled
 const char compile_date[] = __DATE__ " " __TIME__;
 
@@ -17,7 +8,7 @@ const char compile_date[] = __DATE__ " " __TIME__;
 //#define MQTT_USER "" //enter your MQTT username
 //#define MQTT_PASSWORD "" //enter your password
 #define MQTT_DEVICE "mqtt-low-voltage-1-1-controller" // Enter your MQTT device
-#define MQTT_PORT 1883 // Enter your MQTT server port.
+#define MQTT_SSL_PORT 1883 // Enter your MQTT server port.
 #define MQTT_SOCKET_TIMEOUT 120
 #define FW_UPDATE_INTERVAL_SEC 24*3600
 #define STATUS_UPDATE_INTERVAL_SEC 120
@@ -25,7 +16,7 @@ const char compile_date[] = __DATE__ " " __TIME__;
 #define WATCHDOG_RESET_INTERVAL_SEC 120
 #define FLASH_INTERVAL_MS 1500
 #define UPDATE_SERVER "http://192.168.100.15/firmware/"
-#define FIRMWARE_VERSION "-1.08"
+#define FIRMWARE_VERSION "-1.10"
 
 /****************************** MQTT TOPICS (change these topics as you wish)  ***************************************/
 
@@ -37,18 +28,6 @@ const char compile_date[] = __DATE__ " " __TIME__;
 #define MQTT_HEARTBEAT_TOPIC "heartbeat"
 #define MQTT_HEARTBEAT_PUB "mqtt/low-voltage-1-1/heartbeat"
 
-Ticker ticker_fw, ticker_status, ticker_relay;
-
-bool readyForFwUpdate = false;
-bool relayFlashState = false;
-int relayStatus = 0;
-
-// Init WiFi
-WiFiClient espClient;
-
-// Init MQTT
-PubSubClient client(espClient);
-
 #define RELAY_ON 1
 #define RELAY_OFF 0
 #define LIGHT_ON "ON"
@@ -56,24 +35,43 @@ PubSubClient client(espClient);
 #define LIGHT_FLASH "FLASH"
 
 #define RELAY_1    14 //  D1
-#define WATCHDOG   5  //  D5   
+#define WATCHDOG_PIN   5  //  D5   
+
+bool readyForFwUpdate = false;
+bool relayFlashState = false;
+int relayStatus = 0;
+
+#include <PubSubClient.h>
+#include <DHT.h>
+#include <ESP8266WiFi.h>
+#include <Ticker.h>
+#include <ESP8266HTTPClient.h>
+#include <ESP8266httpUpdate.h>
+#include "credentials.h" // Place credentials for wifi and mqtt in this file
+#include "certificates.h" // Place certificates for mqtt in this file
+
+WiFiClientSecure espClient;
+PubSubClient client(espClient);
+Ticker ticker_fw, ticker_status, ticker_relay;
+
+#include "common.h"
 
 void setup() {
   Serial.begin(115200);
   setup_wifi();
-  client.setServer(MQTT_SERVER, MQTT_PORT); //CHANGE PORT HERE IF NEEDED
+  client.setServer(MQTT_SERVER, MQTT_SSL_PORT); //CHANGE PORT HERE IF NEEDED
   client.setCallback(callback);
   
 // Initialize Pins so relays are inactive at reset
 
    
   digitalWrite(RELAY_1, RELAY_OFF);
-  digitalWrite(WATCHDOG, LOW);  
+  digitalWrite(WATCHDOG_PIN, LOW);  
   
 // Set pins as outputs
 
   pinMode(RELAY_1, OUTPUT);   
-  pinMode(WATCHDOG, OUTPUT);
+  pinMode(WATCHDOG_PIN, OUTPUT);
 
   ticker_status.attach_ms(STATUS_UPDATE_INTERVAL_SEC * 1000, statusTicker);
 
@@ -82,30 +80,6 @@ void setup() {
 
 }
 
-void setup_wifi() {
-  int count = 0;
-  my_delay(50);
-
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(WIFI_SSID);
-  
-  WiFi.mode(WIFI_STA);
-  WiFi.hostname(MQTT_DEVICE);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    my_delay(250);
-    Serial.print(".");
-    count++;
-  }
-
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-  
-}
 
 void loop() {
 
@@ -118,24 +92,11 @@ void loop() {
 
   if (!client.connected()) {
       reconnect();
-  }
-
-}
-
-void reconnect() {
-  // Loop until we're reconnected
-  while (!client.connected()) {
-
-    // Attempt to connect
-  if (client.connect(MQTT_DEVICE, MQTT_USER, MQTT_PASSWORD)) {
       client.subscribe(MQTT_HEARTBEAT_SUB);
       client.subscribe(MQTT_SWITCH_TOPIC_1);
-    }
-    else {
-      // Wait 5 seconds before retrying
-      my_delay(5000);
-    }
+
   }
+
 }
 
 void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
@@ -171,11 +132,6 @@ void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
   }
 }
 
-// FW update ticker
-void fwTicker() {
-  readyForFwUpdate = true;
-}
-
 void statusTicker() {
   String status;
   if (relayStatus > 0) {
@@ -199,84 +155,4 @@ void relayTicker() {
     relayFlashState = true;
     digitalWrite(RELAY_1, RELAY_OFF);
   }
-}
-
-String WiFi_macAddressOf(IPAddress aIp) {
-  if (aIp == WiFi.localIP())
-    return WiFi.macAddress();
-
-  if (aIp == WiFi.softAPIP())
-    return WiFi.softAPmacAddress();
-
-  return String("00-00-00-00-00-00");
-}
-
-void checkForUpdates() {
-
-  String clientMAC = WiFi_macAddressOf(espClient.localIP());
-
-  Serial.print("MAC: ");
-  Serial.println(clientMAC);
-  clientMAC.replace(":", "-");
-  String filename = clientMAC.substring(9);
-  String firmware_URL = String(UPDATE_SERVER) + filename + String(FIRMWARE_VERSION);
-  String current_firmware_version_URL = String(UPDATE_SERVER) + filename + String("-current_version");
-
-  HTTPClient http;
-
-  http.begin(current_firmware_version_URL);
-  int httpCode = http.GET();
-  
-  if ( httpCode == 200 ) {
-
-    String newFirmwareVersion = http.getString();
-    newFirmwareVersion.trim();
-    
-    Serial.print( "Current firmware version: " );
-    Serial.println( FIRMWARE_VERSION );
-    Serial.print( "Available firmware version: " );
-    Serial.println( newFirmwareVersion );
-    
-    if(newFirmwareVersion.substring(1).toFloat() > String(FIRMWARE_VERSION).substring(1).toFloat()) {
-      Serial.println( "Preparing to update" );
-      String new_firmware_URL = String(UPDATE_SERVER) + filename + newFirmwareVersion + ".bin";
-      Serial.println(new_firmware_URL);
-      t_httpUpdate_return ret = ESPhttpUpdate.update( new_firmware_URL );
-
-      switch(ret) {
-        case HTTP_UPDATE_FAILED:
-          Serial.printf("HTTP_UPDATE_FAILD Error (%d): %s", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
-          break;
-
-        case HTTP_UPDATE_NO_UPDATES:
-          Serial.println("HTTP_UPDATE_NO_UPDATES");
-         break;
-      }
-    }
-    else {
-      Serial.println("Already on latest firmware");  
-    }
-  }
-  else {
-    Serial.print("GET RC: ");
-    Serial.println(httpCode);
-  }
-}
-
-void my_delay(unsigned long ms) {
-  uint32_t start = micros();
-
-  while (ms > 0) {
-    yield();
-    while ( ms > 0 && (micros() - start) >= 1000) {
-      ms--;
-      start += 1000;
-    }
-  }
-}
-
-void resetWatchdog() {
-  digitalWrite(WATCHDOG, HIGH);
-  my_delay(20);
-  digitalWrite(WATCHDOG, LOW);
 }
