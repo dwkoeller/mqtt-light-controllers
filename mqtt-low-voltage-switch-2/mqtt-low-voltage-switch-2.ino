@@ -8,7 +8,7 @@ const char compile_date[] = __DATE__ " " __TIME__;
 //#define MQTT_USER "" //enter your MQTT username
 //#define MQTT_PASSWORD "" //enter your password
 #define MQTT_DEVICE "mqtt-low-voltage-1-2-controller" // Enter your MQTT device
-#define MQTT_SSL_PORT 1883 // Enter your MQTT server port.
+#define MQTT_SSL_PORT 8883 // Enter your MQTT server port.
 #define MQTT_SOCKET_TIMEOUT 120
 #define FW_UPDATE_INTERVAL_SEC 24*3600
 #define STATUS_UPDATE_INTERVAL_SEC 120
@@ -16,7 +16,7 @@ const char compile_date[] = __DATE__ " " __TIME__;
 #define WATCHDOG_RESET_INTERVAL_SEC 120
 #define FLASH_INTERVAL_MS 1500
 #define UPDATE_SERVER "http://192.168.100.15/firmware/"
-#define FIRMWARE_VERSION "-1.10"
+#define FIRMWARE_VERSION "-1.20"
 
 /****************************** MQTT TOPICS (change these topics as you wish)  ***************************************/
 
