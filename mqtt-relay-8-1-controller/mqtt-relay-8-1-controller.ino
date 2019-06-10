@@ -93,9 +93,8 @@ bool relayFlashState7 = false;
 bool relayFlashState8 = false;
 int relayStatus[8];
 
-#include <PubSubClient.h>
-#include <DHT.h>
 #include <ESP8266WiFi.h>
+#include <PubSubClient.h>
 #include <Ticker.h>
 #include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
