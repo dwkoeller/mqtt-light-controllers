@@ -35,9 +35,8 @@ const char compile_date[] = __DATE__ " " __TIME__;
 #define RELAY_1    5 //  D1  
 #define WATCHDOG_PIN   14 //  D5   
 
-#include <PubSubClient.h>
-#include <DHT.h>
 #include <ESP8266WiFi.h>
+#include <PubSubClient.h>
 #include <Ticker.h>
 #include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
@@ -81,7 +80,6 @@ void loop() {
 
   if (!client.connected()) {
       reconnect();
-      client.subscribe(MQTT_HEARTBEAT_SUB);
       client.subscribe(MQTT_SWITCH_TOPIC_1);
 
   }

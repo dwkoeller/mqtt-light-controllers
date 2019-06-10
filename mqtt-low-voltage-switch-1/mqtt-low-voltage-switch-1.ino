@@ -91,7 +91,6 @@ void loop() {
 
   if (!client.connected()) {
       reconnect();
-      client.subscribe(MQTT_HEARTBEAT_SUB);
       client.subscribe(MQTT_SWITCH_TOPIC_1);
 
   }
