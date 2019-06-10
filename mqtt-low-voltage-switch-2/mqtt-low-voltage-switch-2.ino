@@ -16,7 +16,7 @@ const char compile_date[] = __DATE__ " " __TIME__;
 #define WATCHDOG_RESET_INTERVAL_SEC 120
 #define FLASH_INTERVAL_MS 1500
 #define UPDATE_SERVER "http://192.168.100.15/firmware/"
-#define FIRMWARE_VERSION "-1.20"
+#define FIRMWARE_VERSION "-1.22"
 
 /****************************** MQTT TOPICS (change these topics as you wish)  ***************************************/
 
@@ -41,9 +41,8 @@ bool readyForFwUpdate = false;
 bool relayFlashState = false;
 int relayStatus = 0;
 
-#include <PubSubClient.h>
-#include <DHT.h>
 #include <ESP8266WiFi.h>
+#include <PubSubClient.h>
 #include <Ticker.h>
 #include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
