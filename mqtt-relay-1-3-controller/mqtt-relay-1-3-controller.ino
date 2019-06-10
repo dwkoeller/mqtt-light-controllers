@@ -16,7 +16,7 @@ const char compile_date[] = __DATE__ " " __TIME__;
 #define WATCHDOG_RESET_INTERVAL_SEC 120
 #define FLASH_INTERVAL_MS 1500
 #define UPDATE_SERVER "http://192.168.100.15/firmware/"
-#define FIRMWARE_VERSION "-1.20"
+#define FIRMWARE_VERSION "-1.21"
 
 /****************************** MQTT TOPICS (change these topics as you wish)  ***************************************/
 
@@ -92,7 +92,6 @@ void loop() {
 
   if (!client.connected()) {
       reconnect();
-      client.subscribe(MQTT_HEARTBEAT_SUB);
       client.subscribe(MQTT_SWITCH_TOPIC_1);
 
   }
