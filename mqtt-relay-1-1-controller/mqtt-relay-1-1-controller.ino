@@ -16,7 +16,7 @@ const char compile_date[] = __DATE__ " " __TIME__;
 #define WATCHDOG_RESET_INTERVAL_SEC 120
 #define FLASH_INTERVAL_MS 1500
 #define UPDATE_SERVER "http://192.168.100.15/firmware/"
-#define FIRMWARE_VERSION "-1.22"
+#define FIRMWARE_VERSION "-1.30"
 
 /****************************** MQTT TOPICS (change these topics as you wish)  ***************************************/
 
