@@ -8,25 +8,22 @@ const char compile_date[] = __DATE__ " " __TIME__;
 //#define MQTT_USER "" //enter your MQTT username
 //#define MQTT_PASSWORD "" //enter your password
 #define MQTT_DEVICE "mqtt-low-voltage-1-1-controller" // Enter your MQTT device
+#define MQTT_DEVICE_NAME "Low Voltage 1-1 Controller"
 #define MQTT_SSL_PORT 8883 // Enter your MQTT server port.
 #define MQTT_SOCKET_TIMEOUT 120
 #define FW_UPDATE_INTERVAL_SEC 24*3600
 #define STATUS_UPDATE_INTERVAL_SEC 120
-#define WATCHDOG_UPDATE_INTERVAL_SEC 1
-#define WATCHDOG_RESET_INTERVAL_SEC 120
 #define FLASH_INTERVAL_MS 1500
 #define UPDATE_SERVER "http://192.168.100.15/firmware/"
-#define FIRMWARE_VERSION "-1.30"
+#define FIRMWARE_VERSION "-1.51"
 
 /****************************** MQTT TOPICS (change these topics as you wish)  ***************************************/
 
-#define MQTT_VERSION_PUB "mqtt/low-voltage-1-1/version"
-#define MQTT_COMPILE_PUB "mqtt/low-voltage-1-1/compile"
-#define MQTT_SWITCH_TOPIC_1 "mqtt/low-voltage-1-1/light/switch"
-#define MQTT_SWITCH_REPLY_TOPIC_1 "mqtt/low-voltage-1-1/light/status"
 #define MQTT_HEARTBEAT_SUB "heartbeat/#"
 #define MQTT_HEARTBEAT_TOPIC "heartbeat"
-#define MQTT_HEARTBEAT_PUB "mqtt/low-voltage-1-1/heartbeat"
+#define MQTT_DISCOVERY_LIGHT_PREFIX  "homeassistant/light/"
+#define MQTT_DISCOVERY_SENSOR_PREFIX  "homeassistant/sensor/"
+#define HA_TELEMETRY                         "ha"
 
 #define RELAY_ON 1
 #define RELAY_OFF 0
@@ -37,10 +34,6 @@ const char compile_date[] = __DATE__ " " __TIME__;
 #define RELAY_1    14 //  D1
 #define WATCHDOG_PIN   5  //  D5   
 
-bool readyForFwUpdate = false;
-bool relayFlashState = false;
-int relayStatus = 0;
-
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include <Ticker.h>
@@ -49,9 +42,18 @@ int relayStatus = 0;
 #include "credentials.h" // Place credentials for wifi and mqtt in this file
 #include "certificates.h" // Place certificates for mqtt in this file
 
+Ticker ticker_fw, ticker_status, ticker_relay;
+
+bool readyForFwUpdate = false;
+bool relayFlashState = false;
+int relayStatus = 0;
+bool registered = false;
+
+String lightStateTopic = String(MQTT_DISCOVERY_LIGHT_PREFIX) + MQTT_DEVICE + "/state";
+String ligthCommandTopic = String(MQTT_DISCOVERY_LIGHT_PREFIX) + MQTT_DEVICE + "/command";
+
 WiFiClientSecure espClient;
 PubSubClient client(espClient);
-Ticker ticker_fw, ticker_status, ticker_relay;
 
 #include "common.h"
 
@@ -91,8 +93,14 @@ void loop() {
 
   if (!client.connected()) {
       reconnect();
-      client.subscribe(MQTT_SWITCH_TOPIC_1);
+      client.subscribe(ligthCommandTopic.c_str());
 
+  }
+  if (! registered) {
+    registerTelemetry();
+    updateTelemetry("Unknown");
+    createLight(MQTT_DEVICE, MQTT_DEVICE_NAME);
+    registered = true;
   }
 
 }
@@ -106,25 +114,21 @@ void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
   }   
   if (String(MQTT_HEARTBEAT_TOPIC).equals(p_topic)) {
     resetWatchdog();
-    client.publish(MQTT_HEARTBEAT_PUB, "Heartbeat Received");
-    Serial.println(F("Heartbeat Received"));    
+    updateTelemetry(payload);
     return;
   }
   if (payload.equals(String(LIGHT_ON))) {
     digitalWrite(RELAY_1, RELAY_ON);
-    client.publish(MQTT_SWITCH_REPLY_TOPIC_1, LIGHT_ON);
-    Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_1) + LIGHT_ON);
+    updateLight(MQTT_DEVICE, LIGHT_ON);
     relayStatus = 1;
   }
   else if (payload.equals(String(LIGHT_FLASH))) {
-    Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_1) + "FLASH");
     ticker_relay.attach_ms(FLASH_INTERVAL_MS, relayTicker);
     relayStatus = -1;
   }
   else if (payload.equals(String(LIGHT_OFF))) {
     digitalWrite(RELAY_1, RELAY_OFF);
-    client.publish(MQTT_SWITCH_REPLY_TOPIC_1, LIGHT_OFF);
-    Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_1) + LIGHT_OFF);
+    updateLight(MQTT_DEVICE, LIGHT_OFF);
     ticker_relay.detach();
     relayStatus = 0;
   }
@@ -141,7 +145,7 @@ void statusTicker() {
   else {
     status = "OFF";
   }
-  client.publish(MQTT_SWITCH_REPLY_TOPIC_1, status.c_str());
+  updateLight(MQTT_DEVICE, status.c_str());
 }
 
 void relayTicker() {
@@ -153,4 +157,33 @@ void relayTicker() {
     relayFlashState = true;
     digitalWrite(RELAY_1, RELAY_OFF);
   }
+}
+
+void createLight(String light, String light_name) {
+  String topic = String(MQTT_DISCOVERY_LIGHT_PREFIX) + light + "/config";
+  String message = String("{\"name\": \"") + light_name +
+                   String("\", \"retain\": \"true") +
+                   String("\", \"unique_id\": \"") + light + getUUID() +
+                   String("\", \"optimistic\": \"false") +
+                   String("\", \"command_topic\": \"") + String(MQTT_DISCOVERY_LIGHT_PREFIX) + light +
+                   String("/command\", \"state_topic\": \"") + String(MQTT_DISCOVERY_LIGHT_PREFIX) + light +
+                   String("/state\"}");
+  Serial.print(F("MQTT - "));
+  Serial.print(topic);
+  Serial.print(F(" : "));
+  Serial.println(message.c_str());
+
+  client.publish(topic.c_str(), message.c_str(), true);
+
+}
+
+void updateLight(String light, String state) {
+  String topic = String(MQTT_DISCOVERY_LIGHT_PREFIX) + light + "/state";
+
+  Serial.print(F("MQTT - "));
+  Serial.print(topic);
+  Serial.print(F(" : "));
+  Serial.println(state);
+  client.publish(topic.c_str(), state.c_str(), true);
+
 }

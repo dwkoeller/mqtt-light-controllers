@@ -120,19 +120,16 @@ void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
     digitalWrite(RELAY_1, RELAY_ON);
     updateLight(MQTT_DEVICE, LIGHT_ON);
     relayStatus = 1;
-    Serial.println("ON");
   }
   else if (payload.equals(String(LIGHT_FLASH))) {
     ticker_relay.attach_ms(FLASH_INTERVAL_MS, relayTicker);
     relayStatus = -1;
-    Serial.println("FLASH");
   }
   else if (payload.equals(String(LIGHT_OFF))) {
     digitalWrite(RELAY_1, RELAY_OFF);
     updateLight(MQTT_DEVICE, LIGHT_OFF);
     ticker_relay.detach();
     relayStatus = 0;
-    Serial.println("OFF");
   }
 }
 
@@ -147,7 +144,6 @@ void statusTicker() {
   else {
     status = "OFF";
   }
-//  client.publish(MQTT_SWITCH_REPLY_TOPIC_1, status.c_str());
   updateLight(MQTT_DEVICE, status.c_str());
 }
 

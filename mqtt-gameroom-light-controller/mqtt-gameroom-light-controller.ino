@@ -101,13 +101,11 @@ void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
   if (payload.equals(String(LIGHT_ON))) {
     digitalWrite(RELAY_1, RELAY_ON);
     client.publish(MQTT_SWITCH_REPLY_TOPIC_1, LIGHT_ON);
-    Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_1) + LIGHT_ON);
     relayStatus = 1;
   }
   else if (payload.equals(String(LIGHT_OFF))) {
     digitalWrite(RELAY_1, RELAY_OFF);
     client.publish(MQTT_SWITCH_REPLY_TOPIC_1, LIGHT_OFF);
-    Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_1) + LIGHT_OFF);
     relayStatus = 0;
   }
 }
