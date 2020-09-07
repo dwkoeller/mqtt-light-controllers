@@ -14,16 +14,16 @@ const char compile_date[] = __DATE__ " " __TIME__;
 #define FW_UPDATE_INTERVAL_SEC 24*3600
 #define STATUS_UPDATE_INTERVAL_SEC 120
 #define FLASH_INTERVAL_MS 1500
-#define UPDATE_SERVER "http://192.168.100.15/firmware/"
-#define FIRMWARE_VERSION "-1.51"
+#define FIRMWARE_VERSION "-2.00"
 
 /****************************** MQTT TOPICS (change these topics as you wish)  ***************************************/
 
 #define MQTT_HEARTBEAT_SUB "heartbeat/#"
 #define MQTT_HEARTBEAT_TOPIC "heartbeat"
+#define MQTT_UPDATE_REQUEST "update"
 #define MQTT_DISCOVERY_LIGHT_PREFIX  "homeassistant/light/"
 #define MQTT_DISCOVERY_SENSOR_PREFIX  "homeassistant/sensor/"
-#define HA_TELEMETRY                         "ha"
+#define HA_TELEMETRY "ha"
 
 #define RELAY_ON 1
 #define RELAY_OFF 0
@@ -32,7 +32,7 @@ const char compile_date[] = __DATE__ " " __TIME__;
 #define LIGHT_FLASH "FLASH"
 
 #define RELAY_1    5  //  D1
-#define WATCHDOG_PIN   14 //  D5   
+#define WATCHDOG_PIN   14 //  D5
 
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
@@ -60,18 +60,26 @@ PubSubClient client(espClient);
 void setup() {
   Serial.begin(115200);
   setup_wifi();
+
+  IPAddress result;
+  int err = WiFi.hostByName(MQTT_SERVER, result) ;
+  if(err == 1){
+        Serial.print("MQTT Server IP address: ");
+        Serial.println(result);
+        MQTTServerIP = result.toString();
+  } else {
+        Serial.print("Error code: ");
+        Serial.println(err);
+  }  
+
+  client.setBufferSize(512);  
   client.setServer(MQTT_SERVER, MQTT_SSL_PORT); //CHANGE PORT HERE IF NEEDED
   client.setCallback(callback);
-  
-// Initialize Pins so relays are inactive at reset
 
-   
   digitalWrite(RELAY_1, RELAY_OFF);
-  digitalWrite(WATCHDOG_PIN, LOW);  
-  
-// Set pins as outputs
+  digitalWrite(WATCHDOG_PIN, LOW);
 
-  pinMode(RELAY_1, OUTPUT);   
+  pinMode(RELAY_1, OUTPUT);
   pinMode(WATCHDOG_PIN, OUTPUT);
 
   ticker_status.attach_ms(STATUS_UPDATE_INTERVAL_SEC * 1000, statusTicker);
@@ -114,6 +122,10 @@ void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
   if (String(MQTT_HEARTBEAT_TOPIC).equals(p_topic)) {
     resetWatchdog();
     updateTelemetry(payload);
+    if (payload.equals(String(MQTT_UPDATE_REQUEST))) {
+      checkForUpdates();
+    }    
+    
     return;
   }
   if (payload.equals(String(LIGHT_ON))) {
