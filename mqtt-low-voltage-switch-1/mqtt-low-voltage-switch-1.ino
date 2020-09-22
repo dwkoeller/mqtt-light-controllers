@@ -31,8 +31,8 @@ const char compile_date[] = __DATE__ " " __TIME__;
 #define LIGHT_OFF "OFF"
 #define LIGHT_FLASH "FLASH"
 
-#define RELAY_1    14 //  D1
-#define WATCHDOG_PIN   5  //  D5   
+#define RELAY_1    14 //  D5
+#define WATCHDOG_PIN   5  //  D1   
 
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
