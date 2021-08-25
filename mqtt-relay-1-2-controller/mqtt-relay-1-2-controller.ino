@@ -14,7 +14,7 @@ const char compile_date[] = __DATE__ " " __TIME__;
 #define FW_UPDATE_INTERVAL_SEC 24*3600
 #define STATUS_UPDATE_INTERVAL_SEC 120
 #define FLASH_INTERVAL_MS 1500
-#define FIRMWARE_VERSION "-2.00"
+#define FIRMWARE_VERSION "-2.01"
 
 /****************************** MQTT TOPICS (change these topics as you wish)  ***************************************/
 

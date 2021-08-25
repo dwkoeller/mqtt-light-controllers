@@ -8,23 +8,23 @@ const char compile_date[] = __DATE__ " " __TIME__;
 //#define MQTT_USER "" //enter your MQTT username
 //#define MQTT_PASSWORD "" //enter your password
 #define MQTT_DEVICE "mqtt-relay-8-1-controller" // Enter your MQTT device
+#define MQTT_DEVICE_NAME "Relay 8-1 Controller"
 #define MQTT_SSL_PORT 8883 // Enter your MQTT server port.
 #define MQTT_SOCKET_TIMEOUT 120
 #define FW_UPDATE_INTERVAL_SEC 24*3600
 #define STATUS_UPDATE_INTERVAL_SEC 120
-#define WATCHDOG_UPDATE_INTERVAL_SEC 1
-#define WATCHDOG_RESET_INTERVAL_SEC 120
 #define FLASH_INTERVAL_MS 1500
-#define UPDATE_SERVER "http://192.168.100.15/firmware/"
-#define FIRMWARE_VERSION "-1.60"
+#define FIRMWARE_VERSION "-1.90"
 
 /****************************** MQTT TOPICS (change these topics as you wish)  ***************************************/
 
-#define MQTT_VERSION_PUB "mqtt/relay-8-1/light/version"
-#define MQTT_COMPILE_PUB "mqtt/relay-8-1/light/compile"
-#define MQTT_HEARTBEAT_PUB "mqtt/relay-8-1/heartbeat"
 #define MQTT_HEARTBEAT_SUB "heartbeat/#"
 #define MQTT_HEARTBEAT_TOPIC "heartbeat"
+#define MQTT_UPDATE_REQUEST "update"
+#define MQTT_DISCOVERY_LIGHT_PREFIX  "homeassistant/light/"
+#define MQTT_DISCOVERY_SENSOR_PREFIX  "homeassistant/sensor/"
+#define HA_TELEMETRY "ha"
+
 #define MQTT_SWITCH_TOPIC_1 "mqtt/relay-8-1/light/switch-1"
 #define MQTT_SWITCH_TOPIC_2 "mqtt/relay-8-1/light/switch-2"
 #define MQTT_SWITCH_TOPIC_3 "mqtt/relay-8-1/light/switch-3"
@@ -58,29 +58,15 @@ const char compile_date[] = __DATE__ " " __TIME__;
 #define RELAY_6    14 //  D5  
 #define RELAY_7    12 //  D6  
 #define RELAY_8    13 //  D7
+
 #define WATCHDOG_PIN   15 //  D8
 
-enum string_code {
-    eSwitch1,
-    eSwitch2,
-    eSwitch3,
-    eSwitch4,
-    eSwitch5,
-    eSwitch6,
-    eSwitch7,
-    eSwitch8
-};
+int relayPin[] = { 16,5,4,0,2,14,12,13 };
 
-string_code hashit (String inString) {
-    if (inString == MQTT_SWITCH_TOPIC_1) return eSwitch1;
-    if (inString == MQTT_SWITCH_TOPIC_2) return eSwitch2;
-    if (inString == MQTT_SWITCH_TOPIC_3) return eSwitch3;
-    if (inString == MQTT_SWITCH_TOPIC_4) return eSwitch4;
-    if (inString == MQTT_SWITCH_TOPIC_5) return eSwitch5;
-    if (inString == MQTT_SWITCH_TOPIC_6) return eSwitch6;
-    if (inString == MQTT_SWITCH_TOPIC_7) return eSwitch7;
-    if (inString == MQTT_SWITCH_TOPIC_8) return eSwitch8;
-}
+bool registered = false;
+
+String lightStateTopic;
+String ligthCommandTopic;
 
 bool readyForFwUpdate = false;
 bool relayFlashState1 = false;
@@ -116,6 +102,19 @@ void setup() {
   
   Serial.begin(115200);
   setup_wifi();
+
+  IPAddress result;
+  int err = WiFi.hostByName(MQTT_SERVER, result) ;
+  if(err == 1){
+        Serial.print("MQTT Server IP address: ");
+        Serial.println(result);
+        MQTTServerIP = result.toString();
+  } else {
+        Serial.print("Error code: ");
+        Serial.println(err);
+  }    
+  
+  client.setBufferSize(512);
   client.setServer(MQTT_SERVER, MQTT_SSL_PORT); //CHANGE PORT HERE IF NEEDED
   client.setCallback(callback);
   
@@ -172,7 +171,15 @@ void loop() {
       client.subscribe(MQTT_HEARTBEAT_SUB);
 
   }
-
+  if (! registered) {
+    registerTelemetry();
+    updateTelemetry("Unknown");
+    for (int count=1; count<9; count++) {
+      createLight(String(MQTT_DEVICE) + "-light-" + String(count), String(MQTT_DEVICE_NAME) + " - Light " + String(count));
+    }
+    registered = true;
+  }
+  
 }
 
 void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
@@ -184,173 +191,40 @@ void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
     payload.concat((char)p_payload[i]);
   }   
   strTopic = String((char*)p_topic);
-    if (strTopic == MQTT_HEARTBEAT_TOPIC) {
+  if (strTopic == MQTT_HEARTBEAT_TOPIC) {
     resetWatchdog();
-    client.publish(MQTT_HEARTBEAT_PUB, "Heartbeat Received");
+    updateTelemetry(payload);
+    if (payload.equals(String(MQTT_UPDATE_REQUEST))) {
+      checkForUpdates();
+    }        
     return;
-  } 
-  switch (hashit(p_topic)) {
-    case eSwitch1:
-      if (payload.equals(String(LIGHT_ON))) {
-        digitalWrite(RELAY_1, RELAY_ON);
-        client.publish(MQTT_SWITCH_REPLY_TOPIC_1, LIGHT_ON);
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_1) + "ON");
-        relayStatus[0] = 1;
+  }
+  if (strTopic.indexOf(MQTT_DEVICE)) {
+    int index = strTopic.indexOf("-light-");
+    if (index > -1) {
+      String strDevice = strTopic.substring(index);
+      int device = atoi(strDevice.c_str());
+
+      if ((device >= 1) && (device <=8)) {
+        if (payload.equals(String(LIGHT_ON))) {
+          digitalWrite(relayPin[device -1], RELAY_ON);
+          updateLight(String(MQTT_DEVICE) + "-light-" + strDevice, LIGHT_ON);
+          relayStatus[0] = 1;        
+        }
+        else if (payload.equals(String(LIGHT_FLASH))) {
+          ticker_relay1.attach_ms(FLASH_INTERVAL_MS, relay1Ticker);
+          relayStatus[0] = -1;
+        }
+        else if (payload.equals(String(LIGHT_OFF))) {
+          digitalWrite(relayPin[device -1], RELAY_OFF);
+          updateLight(String(MQTT_DEVICE) + "-light-" + strDevice, LIGHT_OFF);
+          ticker_relay1.detach();
+          relayStatus[0] = 0;
+        }        
       }
-      else if (payload.equals(String(LIGHT_FLASH))) {
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_1) + "FLASH");
-        ticker_relay1.attach_ms(FLASH_INTERVAL_MS, relay1Ticker);
-        relayStatus[0] = -1;
-      }
-      else if (payload.equals(String(LIGHT_OFF))) {
-        digitalWrite(RELAY_1, RELAY_OFF);
-        client.publish(MQTT_SWITCH_REPLY_TOPIC_1, LIGHT_OFF);
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_1) + "OFF");
-        ticker_relay1.detach();
-        relayStatus[0] = 0;
-      }
-      break;
-    case eSwitch2:
-      if (payload.equals(String(LIGHT_ON))) {
-        digitalWrite(RELAY_2, RELAY_ON);
-        client.publish(MQTT_SWITCH_REPLY_TOPIC_2, LIGHT_ON);
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_2) + "1");
-        relayStatus[1] = 1;
-      }
-      else if (payload.equals(String(LIGHT_FLASH))) {
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_2) + "FLASH");
-        ticker_relay2.attach_ms(FLASH_INTERVAL_MS, relay2Ticker);
-        relayStatus[1] = -1;
-      }
-      else if (payload.equals(String(LIGHT_OFF))) {
-        digitalWrite(RELAY_2, RELAY_OFF);
-        client.publish(MQTT_SWITCH_REPLY_TOPIC_2, LIGHT_OFF);
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_2) + "0");
-        ticker_relay2.detach();
-        relayStatus[1] = 0;
-      }
-      break;
-    case eSwitch3:
-      if (payload.equals(String(LIGHT_ON))) {
-        digitalWrite(RELAY_3, RELAY_ON);
-        client.publish(MQTT_SWITCH_REPLY_TOPIC_3, LIGHT_ON);
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_3) + "1");
-        relayStatus[2] = 1;
-      }
-      else if (payload.equals(String(LIGHT_FLASH))) {
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_3) + "FLASH");
-        ticker_relay3.attach_ms(FLASH_INTERVAL_MS, relay3Ticker);
-        relayStatus[2] = -1;
-      }
-      else if (payload.equals(String(LIGHT_OFF))) {
-        digitalWrite(RELAY_3, RELAY_OFF);
-        client.publish(MQTT_SWITCH_REPLY_TOPIC_3, LIGHT_OFF);
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_3) + "0");
-        ticker_relay3.detach();
-        relayStatus[2] = 0;
-      }
-      break;
-    case eSwitch4:
-      if (payload.equals(String(LIGHT_ON))) {
-        digitalWrite(RELAY_4, RELAY_ON);
-        client.publish(MQTT_SWITCH_REPLY_TOPIC_4, LIGHT_ON);
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_4) + "1");
-        relayStatus[3] = 1;
-      }
-      else if (payload.equals(String(LIGHT_FLASH))) {
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_4) + "FLASH");
-        ticker_relay4.attach_ms(FLASH_INTERVAL_MS, relay4Ticker);
-        relayStatus[3] = -1;
-      }
-      else if (payload.equals(String(LIGHT_OFF))) {
-        digitalWrite(RELAY_4, RELAY_OFF);
-        client.publish(MQTT_SWITCH_REPLY_TOPIC_4, LIGHT_OFF);
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_4) + "0");
-        ticker_relay4.detach();
-        relayStatus[3] = 0;
-      }
-      break;
-    case eSwitch5:
-      if (payload.equals(String(LIGHT_ON))) {
-        digitalWrite(RELAY_5, RELAY_ON);
-        client.publish(MQTT_SWITCH_REPLY_TOPIC_5, LIGHT_ON);
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_5) + "1");
-        relayStatus[4] = 1;
-      }
-      else if (payload.equals(String(LIGHT_FLASH))) {
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_5) + "FLASH");
-        ticker_relay5.attach_ms(FLASH_INTERVAL_MS, relay5Ticker);
-        relayStatus[4] = -1;
-      }
-      else if (payload.equals(String(LIGHT_OFF))) {
-        digitalWrite(RELAY_5, RELAY_OFF);
-        client.publish(MQTT_SWITCH_REPLY_TOPIC_5, LIGHT_OFF);
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_5) + "0");
-        ticker_relay5.detach();
-        relayStatus[4] = 0;
-      }
-      break;
-    case eSwitch6:
-      if (payload.equals(String(LIGHT_ON))) {
-        digitalWrite(RELAY_6, RELAY_ON);
-        client.publish(MQTT_SWITCH_REPLY_TOPIC_6, LIGHT_ON);
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_6) + "1");
-        relayStatus[5] = 1;
-      }
-      else if (payload.equals(String(LIGHT_FLASH))) {
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_6) + "FLASH");
-        ticker_relay6.attach_ms(FLASH_INTERVAL_MS, relay6Ticker);
-        relayStatus[5] = -1;
-      }
-      else if (payload.equals(String(LIGHT_OFF))) {
-        digitalWrite(RELAY_6, RELAY_OFF);
-        client.publish(MQTT_SWITCH_REPLY_TOPIC_6, LIGHT_OFF);
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_6) + "0");
-        ticker_relay6.detach();
-        relayStatus[5] = 0;
-      }
-      break;
-    case eSwitch7:
-      if (payload.equals(String(LIGHT_ON))) {
-        digitalWrite(RELAY_7, RELAY_ON);
-        client.publish(MQTT_SWITCH_REPLY_TOPIC_7, LIGHT_ON);
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_7) + "1");
-        relayStatus[6] = 1;
-      }
-      else if (payload.equals(String(LIGHT_FLASH))) {
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_7) + "FLASH");
-        ticker_relay7.attach_ms(FLASH_INTERVAL_MS, relay7Ticker);
-        relayStatus[6] = -1;
-      }
-      else if (payload.equals(String(LIGHT_OFF))) {
-        digitalWrite(RELAY_7, RELAY_OFF);
-        client.publish(MQTT_SWITCH_REPLY_TOPIC_7, LIGHT_OFF);
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_7) + "0");
-        ticker_relay7.detach();
-        relayStatus[6] = 0;
-      }
-      break;
-    case eSwitch8:
-      if (payload.equals(String(LIGHT_ON))) {
-        digitalWrite(RELAY_8, RELAY_ON);
-        client.publish(MQTT_SWITCH_REPLY_TOPIC_8, LIGHT_ON);
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_8) + "1");
-        relayStatus[7] = 1;
-      }
-      else if (payload.equals(String(LIGHT_FLASH))) {
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_8) + "FLASH");
-        ticker_relay8.attach_ms(FLASH_INTERVAL_MS, relay8Ticker);
-        relayStatus[7] = -1;
-      }
-      else if (payload.equals(String(LIGHT_OFF))) {
-        digitalWrite(RELAY_8, RELAY_OFF);
-        client.publish(MQTT_SWITCH_REPLY_TOPIC_8, LIGHT_OFF);
-        Serial.println(String(MQTT_SWITCH_REPLY_TOPIC_8) + "0");
-        ticker_relay8.detach();
-        relayStatus[7] = 0;
-      }
-      break;
-  }  
+    }
+    return;   
+  }
 }
 
 void statusTicker() {
@@ -455,4 +329,33 @@ void relay8Ticker() {
     relayFlashState8 = true;
     digitalWrite(RELAY_8, RELAY_OFF);
   }
+}
+
+void createLight(String light, String light_name) {
+  String topic = String(MQTT_DISCOVERY_LIGHT_PREFIX) + light + "/config";
+  String message = String("{\"name\": \"") + light_name +
+                   String("\", \"retain\": \"true") +
+                   String("\", \"unique_id\": \"") + light + getUUID() +
+                   String("\", \"optimistic\": \"false") +
+                   String("\", \"command_topic\": \"") + String(MQTT_DISCOVERY_LIGHT_PREFIX) + light +
+                   String("/command\", \"state_topic\": \"") + String(MQTT_DISCOVERY_LIGHT_PREFIX) + light +
+                   String("/state\"}");
+  Serial.print(F("MQTT - "));
+  Serial.print(topic);
+  Serial.print(F(" : "));
+  Serial.println(message.c_str());
+
+  client.publish(topic.c_str(), message.c_str(), true);
+
+}
+
+void updateLight(String light, String state) {
+  String topic = String(MQTT_DISCOVERY_LIGHT_PREFIX) + light + "/state";
+
+  Serial.print(F("MQTT - "));
+  Serial.print(topic);
+  Serial.print(F(" : "));
+  Serial.println(state);
+  client.publish(topic.c_str(), state.c_str(), true);
+
 }
